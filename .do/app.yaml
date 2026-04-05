@@ -1,0 +1,28 @@
+# DigitalOcean App Platform — optional spec (Apps → Create → From spec).
+# After import, open the app → Settings → App-Level Environment Variables and add:
+#   NEXT_PUBLIC_MAPBOX_TOKEN (required at build + run)
+#   GOOGLE_APPLICATION_CREDENTIALS_JSON (Earth Engine JSON, one line) OR see .env.example
+#   EARTH_ENGINE_PROJECT (optional if JSON includes project_id)
+#
+# Or create the app from the UI: GitHub repo → Dockerfile on main → add the same variables.
+
+name: alabama-power-dashboard
+region: nyc
+
+services:
+  - name: web
+    github:
+      repo: AbbySeneor/alabama-power-dashboard
+      branch: main
+      deploy_on_push: true
+
+    dockerfile_path: Dockerfile
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+
+    health_check:
+      http_path: /
+
+    routes:
+      - path: /

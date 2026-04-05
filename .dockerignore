@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+secrets/*.json
+.DS_Store
+npm-debug.log*
+.vercel
+coverage
+*.tsbuildinfo

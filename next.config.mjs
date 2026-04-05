@@ -5,6 +5,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /** Smaller Docker / DigitalOcean App Platform images (`node server.js`). */
+  output: "standalone",
   transpilePackages: ["mapbox-gl"],
   experimental: {
     serverComponentsExternalPackages: ["@google/earthengine"],

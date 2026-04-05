@@ -48,6 +48,8 @@ npm run build
 npm start
 ```
 
+Production Docker images use **standalone** output (`Dockerfile` at repo root). See **[docs/DEPLOY_DIGITALOCEAN.md](docs/DEPLOY_DIGITALOCEAN.md)** for **DigitalOcean App Platform** (or a Droplet).
+
 ## Data notes
 
 - **Transmission lines** are loaded from the public [HIFLD](https://hifld-geoplatform.opendata.arcgis.com/) ArcGIS service: all features intersecting an Alabama bounding box are fetched with **paged queries** (2000 records per request). If the service is unavailable, the app falls back to representative GeoJSON segments.
