@@ -1,101 +1,291 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Header } from "@/components/layout/Header";
+import { StatusBar } from "@/components/layout/StatusBar";
+import { ROWMap } from "@/components/map/ROWMap";
+import { LayerControl } from "@/components/map/LayerControl";
+import { MapLegend } from "@/components/map/MapLegend";
+import { CorridorSelector } from "@/components/panels/CorridorSelector";
+import { CorridorStats } from "@/components/panels/CorridorStats";
+import { CanopyChart } from "@/components/panels/CanopyChart";
+import { NDVIChart } from "@/components/panels/NDVIChart";
+import { PhenoChart } from "@/components/panels/PhenoChart";
+import { RiskBreakdown } from "@/components/panels/RiskBreakdown";
+import { StormComparison } from "@/components/panels/StormComparison";
+import { WeatherContext } from "@/components/panels/WeatherContext";
+import { AnalysisInsights } from "@/components/panels/AnalysisInsights";
+import { defaultCorridorId } from "@/lib/corridorsConfig";
+import { powerLineStableKey } from "@/lib/powerLineKeys";
+import { findCorridorLineLengthKm, lineLengthKm } from "@/lib/powerLineGeometry";
+import type {
+  CorridorId,
+  EarthEngineDashboard,
+  EarthEngineDashboardError,
+  EETileUrls,
+  LayerId,
+  LayerVisibility,
+  PowerLineFeature,
+} from "@/types";
+
+const defaultVisibility: LayerVisibility = {
+  apLines: true,
+  allLines: true,
+  canopy: true,
+  ndvi: false,
+  risk: true,
+  storm: false,
+};
+
+function isDashboard(
+  j: EarthEngineDashboard | EarthEngineDashboardError,
+): j is EarthEngineDashboard {
+  if (typeof j !== "object" || j === null) return false;
+  if ("ok" in j && j.ok === false) return false;
+  return Array.isArray((j as EarthEngineDashboard).ndviYearlySouth);
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [corridorId, setCorridorId] = useState<CorridorId>(defaultCorridorId);
+  const [layers, setLayers] = useState<LayerVisibility>(defaultVisibility);
+  const [cursor, setCursor] = useState<{ lng: number | null; lat: number | null }>(
+    { lng: null, lat: null },
+  );
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  const [eeTiles, setEeTiles] = useState<EETileUrls | null>(null);
+  const [tilesErr, setTilesErr] = useState<string | null>(null);
+
+  const [dashboard, setDashboard] = useState<EarthEngineDashboard | null>(null);
+  const [dashLoading, setDashLoading] = useState(true);
+  const [dashErr, setDashErr] = useState<string | null>(null);
+
+  const [lineFeatures, setLineFeatures] = useState<PowerLineFeature[]>([]);
+  const [selectedLineObjectKey, setSelectedLineObjectKey] = useState<string | null>(
+    null,
+  );
+
+  const selectedLineLengthKm = useMemo(() => {
+    if (!selectedLineObjectKey) return null;
+    for (const f of lineFeatures) {
+      if (powerLineStableKey(f.properties) === selectedLineObjectKey) {
+        return lineLengthKm(f);
+      }
+    }
+    return null;
+  }, [lineFeatures, selectedLineObjectKey]);
+
+  const corridorLengthKm = useMemo(
+    () =>
+      selectedLineLengthKm ?? findCorridorLineLengthKm(lineFeatures, corridorId),
+    [selectedLineLengthKm, lineFeatures, corridorId],
+  );
+
+  const selectedLineLabel = useMemo(() => {
+    if (!selectedLineObjectKey) return null;
+    const f = lineFeatures.find(
+      (x) => powerLineStableKey(x.properties) === selectedLineObjectKey,
+    );
+    if (!f?.properties) return "Selected span";
+    const p = f.properties;
+    if (p.OBJECTID != null) return `OBJECTID ${p.OBJECTID}`;
+    if (p.ID != null) return `Line ${p.ID}`;
+    return "Selected span";
+  }, [lineFeatures, selectedLineObjectKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ corridorId });
+        if (selectedLineObjectKey) {
+          qs.set("lineObjectId", selectedLineObjectKey);
+        }
+        const res = await fetch(`/api/ee/tiles?${qs.toString()}`, {
+          cache: "no-store",
+        });
+        const j = (await res.json()) as
+          | ({ ok: true } & EETileUrls)
+          | { ok: false; error?: string };
+        if (cancelled) return;
+        if (j.ok && j.ndvi && j.canopy && j.storm && j.encroachment) {
+          setEeTiles({
+            ndvi: j.ndvi,
+            canopy: j.canopy,
+            storm: j.storm,
+            encroachment: j.encroachment,
+          });
+          setTilesErr(null);
+        } else {
+          setEeTiles(null);
+          setTilesErr(
+            !j.ok ? (j.error ?? "Earth Engine tiles unavailable") : "Incomplete tile response",
+          );
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setEeTiles(null);
+          setTilesErr(e instanceof Error ? e.message : "Tiles request failed");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [corridorId, selectedLineObjectKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDashLoading(true);
+    setDashErr(null);
+    setDashboard(null);
+    (async () => {
+      const ac = new AbortController();
+      const timeoutMs = 120_000;
+      const timer = window.setTimeout(() => ac.abort(), timeoutMs);
+      try {
+        const qs = new URLSearchParams({ corridorId });
+        if (selectedLineObjectKey) {
+          qs.set("lineObjectId", selectedLineObjectKey);
+        }
+        const res = await fetch(`/api/ee/dashboard?${qs.toString()}`, {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const j = (await res.json()) as
+          | EarthEngineDashboard
+          | EarthEngineDashboardError;
+        if (cancelled) return;
+        if (isDashboard(j)) {
+          setDashboard(j);
+          setDashErr(null);
+        } else {
+          setDashboard(null);
+          setDashErr(
+            !res.ok
+              ? ((j as EarthEngineDashboardError).error ?? `HTTP ${res.status}`)
+              : ((j as EarthEngineDashboardError).error ?? "Earth Engine unavailable"),
+          );
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setDashboard(null);
+          if (e instanceof Error && e.name === "AbortError") {
+            setDashErr(
+              `Charts request timed out after ${timeoutMs / 1000}s — check Earth Engine credentials and network.`,
+            );
+          } else {
+            setDashErr(e instanceof Error ? e.message : "Dashboard request failed");
+          }
+        }
+      } finally {
+        window.clearTimeout(timer);
+        if (!cancelled) setDashLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [corridorId, selectedLineObjectKey]);
+
+  const setLayer = useCallback((id: LayerId, visible: boolean) => {
+    setLayers((prev) => ({ ...prev, [id]: visible }));
+  }, []);
+
+  const onCursorMove = useCallback((lng: number, lat: number) => {
+    setCursor({ lng, lat });
+  }, []);
+
+  const onPowerLinesLoaded = useCallback((features: PowerLineFeature[]) => {
+    setLineFeatures(features);
+  }, []);
+
+  return (
+    <div className="dashboard-grid">
+      <Header />
+      <main className="dashboard-main">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="pointer-events-auto h-full w-full">
+            <ROWMap
+              selectedCorridorId={corridorId}
+              onCorridorSelect={setCorridorId}
+              selectedLineObjectKey={selectedLineObjectKey}
+              onLineObjectKeyChange={setSelectedLineObjectKey}
+              visibility={layers}
+              onCursorMove={onCursorMove}
+              eeTiles={eeTiles}
+              onPowerLinesLoaded={onPowerLinesLoaded}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          </div>
         </div>
+        <LayerControl visibility={layers} onChange={setLayer} />
+        <MapLegend visibility={layers} />
+        {(tilesErr || dashErr) && (
+          <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 max-w-[min(520px,calc(100%-2rem))] -translate-x-1/2 rounded-card border border-[var(--treelyon-border)] bg-[rgba(19,17,31,0.96)] px-3 py-2 font-sans text-[11px] text-[var(--treelyon-muted)]">
+            {tilesErr && <div>Map layers: {tilesErr}</div>}
+            {dashErr && <div>Charts: {dashErr}</div>}
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      <aside className="dashboard-sidebar border-l border-[var(--treelyon-border)] bg-[var(--treelyon-surface)]">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <CorridorSelector
+            value={corridorId}
+            onChange={(id) => {
+              setCorridorId(id);
+              setSelectedLineObjectKey(null);
+            }}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
+          {dashLoading && (
+            <div className="border-b border-[var(--treelyon-border)] px-4 py-2 font-sans text-[10px] leading-snug text-[var(--treelyon-muted)]">
+              Loading satellite charts (MODIS NDVI, GEDI canopy, GRIDMET) from Google
+              Earth Engine…
+            </div>
+          )}
+          <CorridorStats
+            corridorLengthKm={corridorLengthKm}
+            dashboard={dashboard}
+            loading={dashLoading}
           />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
+          <NDVIChart
+            south={dashboard?.ndviYearlySouth}
+            north={dashboard?.ndviYearlyNorth}
+            loading={dashLoading}
           />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <CanopyChart
+            bins={dashboard?.canopyBins}
+            loading={dashLoading}
+          />
+          <PhenoChart
+            south={dashboard?.phenologySouth}
+            north={dashboard?.phenologyNorth}
+            loading={dashLoading}
+          />
+          <RiskBreakdown
+            corridorId={corridorId}
+            segments={dashboard?.riskSegments}
+            atRiskPct={dashboard?.riskAtRiskPct}
+            loading={dashLoading}
+          />
+          <StormComparison
+            thumbPreUrl={dashboard?.thumbPreUrl ?? null}
+            thumbPostUrl={dashboard?.thumbPostUrl ?? null}
+            disturbedKm2={dashboard?.stormDisturbedAreaKm2}
+            loading={dashLoading}
+          />
+          <WeatherContext
+            precip={dashboard?.precip}
+            loading={dashLoading}
+          />
+        </div>
+      </aside>
+      <AnalysisInsights
+        corridorId={corridorId}
+        dashboard={dashboard}
+        loading={dashLoading}
+        dashErr={dashErr}
+        selectedLineLabel={selectedLineLabel}
+      />
+      <StatusBar lng={cursor.lng} lat={cursor.lat} />
     </div>
   );
 }
