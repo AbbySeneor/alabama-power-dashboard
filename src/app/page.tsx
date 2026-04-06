@@ -17,6 +17,7 @@ import { WeatherContext } from "@/components/panels/WeatherContext";
 import { AnalysisInsights } from "@/components/panels/AnalysisInsights";
 import { defaultCorridorId } from "@/lib/corridorsConfig";
 import { powerLineStableKey } from "@/lib/powerLineKeys";
+import { readApiJson } from "@/lib/readApiJson";
 import { findCorridorLineLengthKm, lineLengthKm } from "@/lib/powerLineGeometry";
 import type {
   CorridorId,
@@ -103,9 +104,9 @@ export default function Home() {
         const res = await fetch(`/api/ee/tiles?${qs.toString()}`, {
           cache: "no-store",
         });
-        const j = (await res.json()) as
-          | ({ ok: true } & EETileUrls)
-          | { ok: false; error?: string };
+        const j = await readApiJson<
+          ({ ok: true } & EETileUrls) | { ok: false; error?: string }
+        >(res);
         if (cancelled) return;
         if (j.ok && j.ndvi && j.canopy && j.storm && j.encroachment) {
           setEeTiles({
@@ -151,9 +152,9 @@ export default function Home() {
           cache: "no-store",
           signal: ac.signal,
         });
-        const j = (await res.json()) as
-          | EarthEngineDashboard
-          | EarthEngineDashboardError;
+        const j = await readApiJson<
+          EarthEngineDashboard | EarthEngineDashboardError
+        >(res);
         if (cancelled) return;
         if (isDashboard(j)) {
           setDashboard(j);

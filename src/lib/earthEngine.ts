@@ -18,7 +18,21 @@ type ParsedCredentials = {
 };
 
 function parseServiceAccountJson(raw: string): ParsedCredentials {
-  const o = JSON.parse(raw) as Record<string, unknown>;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("<")) {
+    throw new Error(
+      "Earth Engine credentials look like HTML, not JSON. For GOOGLE_APPLICATION_CREDENTIALS_JSON (e.g. on DigitalOcean), paste only the Google Cloud service account key JSON — one line, starting with {. Do not paste a console page or error HTML.",
+    );
+  }
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(raw) as Record<string, unknown>;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `Invalid service account JSON (${msg}). Use the downloaded *.json key from Google Cloud IAM; in App Platform use a single-line value and no smart quotes.`,
+    );
+  }
   const client_email = o.client_email;
   const private_key = o.private_key;
   const project_id = o.project_id;

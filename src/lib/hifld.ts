@@ -63,7 +63,26 @@ export async function fetchHifldAlabamaTransmissionLines(): Promise<
       throw new Error(`HIFLD ${res.status}`);
     }
 
-    const data = (await res.json()) as FC & { error?: { message?: string } };
+    const bodyText = await res.text();
+    const ct = res.headers.get("content-type") ?? "";
+    if (
+      bodyText.trimStart().startsWith("<") ||
+      (!ct.includes("json") && !bodyText.trimStart().startsWith("{"))
+    ) {
+      throw new Error(
+        `HIFLD returned non-JSON (${res.status}, content-type: ${ct || "unknown"}). ` +
+          `Often a proxy or firewall is blocking ArcGIS; snippet: ${bodyText.slice(0, 120).replace(/\s+/g, " ")}`,
+      );
+    }
+
+    let data: FC & { error?: { message?: string } };
+    try {
+      data = JSON.parse(bodyText) as FC & { error?: { message?: string } };
+    } catch {
+      throw new Error(
+        `HIFLD response was not valid JSON. First bytes: ${bodyText.slice(0, 80)}`,
+      );
+    }
 
     if (data.error) {
       throw new Error(data.error.message ?? "HIFLD query error");
