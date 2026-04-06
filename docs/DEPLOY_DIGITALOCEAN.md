@@ -66,6 +66,18 @@ After deploy, open **`https://<your-app>.ondigitalocean.app/api/ee/health`** in 
 - **`no_credentials`** — add `GOOGLE_APPLICATION_CREDENTIALS_JSON` (or another supported variable) in App Platform.
 - **`init_failed`** — read the `message` (wrong JSON, SA not registered for EE, missing project, etc.).
 
+### Debug: local works, production 504
+
+| Check | What it tells you |
+|-------|-------------------|
+| **`/api/ee/health`** | Credentials + `ee.initialize` only (usually fast). |
+| **`/api/ee/diagnose`** | Same init plus one tiny `getInfo` and **`timingsMs`**. If this returns **200 in a few seconds** but **`/api/ee/dashboard`** returns **504**, the gateway is killing the long dashboard/tiles request — not auth. |
+| **Runtime logs** | Search for **`[ee/dashboard]`** and **`[ee/tiles]`**: `getEarthEngine ms`, `computeEarthEngineDashboard ms`, `buildMapTiles ms`. If you never see the final line, the process was cut off by the platform timeout. |
+
+**Why `next dev` differs:** Local development has **no** App Platform (~60s) gateway in front of your API routes, so slow Earth Engine work can still finish. Production cannot.
+
+**Mitigations:** Keep production **`eeFastMode`** (default: do **not** set `EE_FULL_COMPUTE=1`), deploy the latest app (MODIS-based NDVI tiles in fast mode), or **resize** the web component to a larger instance.
+
 ## Troubleshooting (App Platform)
 
 | Issue | What to check |

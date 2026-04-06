@@ -57,7 +57,10 @@ export async function fetchHifldAlabamaTransmissionLines(): Promise<
   for (let page = 0, offset = 0; page < MAX_PAGES; page++) {
     const params = buildHifldPageParams(offset);
     const url = `${HIFLD_QUERY_URL}?${params.toString()}`;
-    const res = await fetch(url, { next: { revalidate: 3600 } });
+    const res = await fetch(url, {
+      next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(25_000),
+    });
 
     if (!res.ok) {
       throw new Error(`HIFLD ${res.status}`);

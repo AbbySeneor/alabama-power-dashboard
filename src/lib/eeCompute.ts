@@ -12,6 +12,7 @@ import {
   promisifyGetMapId,
   promisifyThumbUrl,
 } from "@/lib/earthEngine";
+import { eeFastMode } from "@/lib/eeRuntimeProfile";
 import type {
   CorridorId,
   EarthEngineDashboard,
@@ -72,17 +73,6 @@ const MODIS_VEG = "MODIS/061/MOD13Q1";
  * Production defaults to a lighter compute path (skip heavy S2 storm work, coarser stats).
  * Set EE_FULL_COMPUTE=1 for full storm tiles, storm km², longer NDVI history (needs headroom).
  */
-function eeFullCompute(): boolean {
-  const v = process.env.EE_FULL_COMPUTE?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
-function eeFastMode(): boolean {
-  if (eeFullCompute()) return false;
-  const off = process.env.EE_FAST_MODE?.trim().toLowerCase();
-  if (off === "0" || off === "false" || off === "no") return false;
-  return process.env.NODE_ENV === "production";
-}
 
 async function mapInBatches<T, R>(
   items: T[],
@@ -641,16 +631,28 @@ export async function buildMapTiles(
   const cloudRecent = fast ? 85 : 60;
   const cloudStorm = fast ? 90 : 75;
 
-  const s2ndviRecent = ee
-    .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-    .filterDate("2024-03-01", "2024-10-01")
-    .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudRecent))
-    .map((img: any) =>
-      img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
-    )
-    .median()
-    .clip(region);
+  /**
+   * Sentinel-2 medians for statewide tiles are slow on small hosts; fast mode uses MODIS
+   * (same source as charts) so `/api/ee/tiles` stays under gateway timeouts.
+   */
+  const ndviBase = fast
+    ? ee
+        .ImageCollection(MODIS_VEG)
+        .filterDate("2023-06-01", "2024-06-01")
+        .filterBounds(region)
+        .map((i: any) => modisNdviImage(ee, i))
+        .mean()
+        .clip(region)
+    : ee
+        .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+        .filterDate("2024-03-01", "2024-10-01")
+        .filterBounds(region)
+        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudRecent))
+        .map((img: any) =>
+          img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
+        )
+        .median()
+        .clip(region);
 
   const gediCanopy = ee
     .ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
@@ -690,9 +692,9 @@ export async function buildMapTiles(
         return s2pre.subtract(s2post).clip(region);
       })();
 
-  const encroach = s2ndviRecent.gt(0.62).float().rename("ndvi");
+  const encroach = ndviBase.gt(0.62).float().rename("ndvi");
 
-  const ndviMap = rowClip ? s2ndviRecent.clip(rowClip) : s2ndviRecent;
+  const ndviMap = rowClip ? ndviBase.clip(rowClip) : ndviBase;
   const canopyMap = rowClip ? gediCanopy.clip(rowClip) : gediCanopy;
   const stormMap = rowClip ? storm.clip(rowClip) : storm;
   const encroachMap = rowClip ? encroach.clip(rowClip) : encroach;
