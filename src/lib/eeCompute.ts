@@ -69,7 +69,8 @@ const MODIS_VEG = "MODIS/061/MOD13Q1";
 
 /**
  * App Platform / many hosts return HTTP 504 if Earth Engine work exceeds ~60–100s.
- * Production defaults to a lighter compute path; set EE_FULL_COMPUTE=1 for full fidelity.
+ * Production defaults to a lighter compute path (skip heavy S2 storm work, coarser stats).
+ * Set EE_FULL_COMPUTE=1 for full storm tiles, storm km², longer NDVI history (needs headroom).
  */
 function eeFullCompute(): boolean {
   const v = process.env.EE_FULL_COMPUTE?.trim().toLowerCase();
@@ -177,7 +178,7 @@ const EMPTY_RISK: RiskSegment[] = [
 
 async function riskFromNdvi(ee: any, geometry: any, collectionBounds: any) {
   const fast = eeFastMode();
-  const scale = fast ? 1000 : MODIS_STATS_SCALE;
+  const scale = fast ? 2000 : MODIS_STATS_SCALE;
   const heavy = fast
     ? { maxPixels: 1e9, tileScale: 4 }
     : REDUCE_REGION_HEAVY;
@@ -341,7 +342,7 @@ async function precipSeries(ee: any, at: PrecipSampleLocation): Promise<PrecipDa
   /** Point-only reduce on GRIDMET (~4 km) often returns null; buffer samples a pixel reliably. */
   const sampleGeom = ee.Geometry.Point([cx, cy]).buffer(3000);
   const start = new Date(Date.UTC(2022, 11, 1));
-  const slotCount = eeFastMode() ? 8 : 12;
+  const slotCount = eeFastMode() ? 4 : 12;
   const slots = Array.from({ length: slotCount }, (_, i) => {
     const d0 = new Date(start);
     d0.setUTCDate(start.getUTCDate() + i * 5);
@@ -349,7 +350,7 @@ async function precipSeries(ee: any, at: PrecipSampleLocation): Promise<PrecipDa
     d1.setUTCDate(d0.getUTCDate() + 5);
     return { d0, d1, t0: d0.getTime(), t1: d1.getTime() };
   });
-  const batchSize = eeFastMode() ? 8 : 6;
+  const batchSize = eeFastMode() ? 2 : 6;
   return mapInBatches(slots, batchSize, async ({ d0, t0, t1 }) => {
     const label = `${MONTHS[d0.getUTCMonth()]} ${String(d0.getUTCDate()).padStart(2, "0")}`;
     try {
@@ -380,6 +381,10 @@ async function precipSeries(ee: any, at: PrecipSampleLocation): Promise<PrecipDa
 }
 
 async function stormLossKm2(ee: any, geometry: any): Promise<number> {
+  if (eeFastMode()) {
+    /** Two Sentinel-2 medians + reduce over AOI often exceeds App Platform ~60s budget. */
+    return 0;
+  }
   const region = rect(ee, EE_ALABAMA_BOUNDS);
   const s2ndvi = (start: string, end: string) =>
     ee
@@ -426,7 +431,7 @@ async function highNdviFraction(
   const pix = ee.Image.pixelArea();
   const vegArea = nd.gt(0.62).rename("s").multiply(pix);
   const allArea = nd.mask().rename("s").multiply(pix);
-  const hiScale = eeFastMode() ? 1000 : MODIS_STATS_SCALE;
+  const hiScale = eeFastMode() ? 2000 : MODIS_STATS_SCALE;
   const [vDict, aDict] = await Promise.all([
     eeGetInfo<Record<string, number>>(
       vegArea.reduceRegion({
@@ -532,7 +537,7 @@ export async function computeEarthEngineDashboard(
   const collectionBounds = alabamaGeometry(ee);
   const northDisk = bufferedCenterDisk(ee, EE_NORTH_REF_BOUNDS);
 
-  const yearStart = eeFastMode() ? 2019 : 2013;
+  const yearStart = eeFastMode() ? 2020 : 2013;
   const years: number[] = [];
   for (let y = yearStart; y <= 2024; y++) years.push(y);
 
@@ -655,27 +660,35 @@ export async function buildMapTiles(
     .mean()
     .clip(region);
 
-  const s2pre = ee
-    .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-    .filterDate("2022-10-01", "2022-12-20")
-    .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
-    .map((img: any) =>
-      img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
-    )
-    .median()
-    .clip(region);
-  const s2post = ee
-    .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-    .filterDate("2023-02-01", "2023-05-01")
-    .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
-    .map((img: any) =>
-      img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
-    )
-    .median()
-    .clip(region);
-  const storm = s2pre.subtract(s2post).clip(region);
+  /**
+   * Full storm layer = two S2 medians + diff — often pushes `/api/ee/tiles` past gateway timeouts.
+   * Fast mode ships a placeholder tile (flat); use `EE_FULL_COMPUTE=1` for real storm imagery.
+   */
+  const storm = fast
+    ? ee.Image(0).float().rename("ndvi").clip(region)
+    : (() => {
+        const s2pre = ee
+          .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+          .filterDate("2022-10-01", "2022-12-20")
+          .filterBounds(region)
+          .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
+          .map((img: any) =>
+            img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
+          )
+          .median()
+          .clip(region);
+        const s2post = ee
+          .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+          .filterDate("2023-02-01", "2023-05-01")
+          .filterBounds(region)
+          .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
+          .map((img: any) =>
+            img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
+          )
+          .median()
+          .clip(region);
+        return s2pre.subtract(s2post).clip(region);
+      })();
 
   const encroach = s2ndviRecent.gt(0.62).float().rename("ndvi");
 

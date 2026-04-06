@@ -20,6 +20,7 @@ services:
     http_port: 3000
     instance_count: 1
     instance_size_slug: basic-xxs
+    # If /api/ee/* returns 504 after deploy, try basic-xs or larger in the DO UI (more CPU/RAM).
 
     health_check:
       http_path: /
