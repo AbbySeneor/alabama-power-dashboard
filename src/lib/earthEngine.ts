@@ -12,9 +12,41 @@ function normalizePrivateKeyPem(raw: string): string {
 }
 
 /** Trim + strip UTF-8 BOM (common when copying JSON from some editors / consoles). */
-function stripEnvValue(raw: string | undefined): string {
+export function stripEnvValue(raw: string | undefined): string {
   if (raw == null) return "";
   return raw.trim().replace(/^\uFEFF/, "");
+}
+
+/**
+ * Some hosts store the service account blob as a JSON *string* (escaped JSON) or wrapped in
+ * outer quotes. Normalize to raw `{...}` before JSON.parse.
+ */
+function unwrapCredentialJsonString(raw: string): string {
+  const s = stripEnvValue(raw);
+  if (s.length < 2) return s;
+  if (s[0] === '"' && s.endsWith('"')) {
+    try {
+      const decoded = JSON.parse(s) as unknown;
+      if (typeof decoded === "string") {
+        const inner = stripEnvValue(decoded);
+        if (inner.startsWith("{")) return inner;
+      }
+    } catch {
+      /* treat as raw JSON object string */
+    }
+  }
+  if (!s.startsWith("{")) {
+    try {
+      const once = JSON.parse(s) as unknown;
+      if (typeof once === "string") {
+        const inner = stripEnvValue(once);
+        if (inner.startsWith("{")) return inner;
+      }
+    } catch {
+      /* leave as-is */
+    }
+  }
+  return s;
 }
 
 type ParsedCredentials = {
@@ -24,7 +56,7 @@ type ParsedCredentials = {
 };
 
 function parseServiceAccountJson(raw: string): ParsedCredentials {
-  const trimmed = stripEnvValue(raw);
+  const trimmed = unwrapCredentialJsonString(raw);
   if (trimmed.startsWith("<")) {
     throw new Error(
       "Earth Engine credentials look like HTML, not JSON. For GOOGLE_APPLICATION_CREDENTIALS_JSON (e.g. on DigitalOcean), paste only the Google Cloud service account key JSON — one line, starting with {. Do not paste a console page or error HTML.",
@@ -58,10 +90,10 @@ function parseServiceAccountJson(raw: string): ParsedCredentials {
  * Credentials for ee.data.authenticateViaPrivateKey (client_email + private_key).
  *
  * Priority:
- * 1. GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON file (recommended)
- * 2. GOOGLE_APPLICATION_CREDENTIALS_JSON — full JSON string
- * 3. GEE_PRIVATE_KEY — if it starts with `{`, full service account JSON
- * 4. GEE_SERVICE_ACCOUNT_EMAIL + GEE_PRIVATE_KEY — IAM email + PEM private key
+ * 1. GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON file (recommended local)
+ * 2. GEE_PRIVATE_KEY — if it starts with `{`, full service account JSON (good for App Platform)
+ * 3. GEE_SERVICE_ACCOUNT_EMAIL + GEE_PRIVATE_KEY — `*.iam.gserviceaccount.com` email + PEM
+ * 4. GOOGLE_APPLICATION_CREDENTIALS_JSON — full JSON string (legacy / alternate)
  */
 function loadFromCredentialsFile(): ParsedCredentials | null {
   const rel = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
@@ -80,15 +112,10 @@ function loadEarthEngineCredentials(): ParsedCredentials {
   const fromFile = loadFromCredentialsFile();
   if (fromFile) return fromFile;
 
-  const legacyJson = stripEnvValue(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-  if (legacyJson) {
-    return parseServiceAccountJson(legacyJson);
-  }
-
   const geeKey = stripEnvValue(process.env.GEE_PRIVATE_KEY);
   const geeEmail = stripEnvValue(process.env.GEE_SERVICE_ACCOUNT_EMAIL);
 
-  if (geeKey?.startsWith("{")) {
+  if (geeKey.startsWith("{")) {
     return parseServiceAccountJson(geeKey);
   }
 
@@ -99,10 +126,15 @@ function loadEarthEngineCredentials(): ParsedCredentials {
     };
   }
 
+  const legacyJson = stripEnvValue(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  if (legacyJson) {
+    return parseServiceAccountJson(legacyJson);
+  }
+
   throw new Error(
     "Earth Engine auth: set GOOGLE_APPLICATION_CREDENTIALS to a JSON key file path, " +
-      "or GOOGLE_APPLICATION_CREDENTIALS_JSON, " +
-      "or GEE_PRIVATE_KEY (full JSON or PEM with GEE_SERVICE_ACCOUNT_EMAIL).",
+      "or GEE_PRIVATE_KEY (full service account JSON, or PEM with GEE_SERVICE_ACCOUNT_EMAIL), " +
+      "or GOOGLE_APPLICATION_CREDENTIALS_JSON.",
   );
 }
 

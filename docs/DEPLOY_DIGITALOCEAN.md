@@ -25,15 +25,19 @@ Open the component (or app) **Environment Variables** section **before** the fir
 | Key | When it applies | Value |
 |-----|-----------------|--------|
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | **Build** *and* **Run** | Your Mapbox **public** token (`pk.…`). Must be present at **build** so Next.js can inline it. |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | **Run** only | Full Google **service account JSON** as a **single line** (no line breaks). Same as local `.env.example` option B. |
+| `GEE_PRIVATE_KEY` | **Run** only | **Recommended for Earth Engine:** the full Google **service account key JSON** as a **single line** (minified, must start with `{`). The app reads this before `GOOGLE_APPLICATION_CREDENTIALS_JSON`, so this is the clearest option when you want “Treelyon-style” envs on App Platform. |
 | `EARTH_ENGINE_PROJECT` | **Run** only | Optional if the JSON already contains `project_id`. |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | **Run** only | Same JSON as above (one line). Still supported; used only if `GEE_PRIVATE_KEY` is unset. |
+| `GEE_SERVICE_ACCOUNT_EMAIL` | **Run** only | **Only** if `GEE_PRIVATE_KEY` is a **PEM** string (`-----BEGIN PRIVATE KEY-----`), not full JSON. Value must be the key’s **`client_email`** (`something@project.iam.gserviceaccount.com`). Do **not** use a personal Gmail here. |
 
-**Secrets:** turn on **Encrypt** (or mark as secret) for the token and JSON.
+**Secrets:** turn on **Encrypt** (or mark as secret) for the token and any JSON/PEM.
+
+**Avoid conflicting vars:** If you switch to `GEE_PRIVATE_KEY`, remove or clear `GOOGLE_APPLICATION_CREDENTIALS_JSON` so an old or invalid value cannot confuse debugging (the app prefers `GEE_PRIVATE_KEY` when set).
 
 In the App Platform UI, each variable usually has checkboxes like **Available at build time** and **Available at run time**:
 
 - `NEXT_PUBLIC_MAPBOX_TOKEN` → enable **both** build and run.  
-- `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `EARTH_ENGINE_PROJECT` → **run time only**.
+- Earth Engine variables (`GEE_PRIVATE_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, `EARTH_ENGINE_PROJECT`, etc.) → **run time only**.
 
 ---
 
@@ -63,7 +67,7 @@ When it finishes, open the **`*.ondigitalocean.app`** URL.
 After deploy, open **`https://<your-app>.ondigitalocean.app/api/ee/health`** in the browser.
 
 - **`earthEngine: "ready"`** — auth and `ee.initialize` succeeded; if charts still fail, check **runtime logs** for compute errors.
-- **`no_credentials`** — add `GOOGLE_APPLICATION_CREDENTIALS_JSON` (or another supported variable) in App Platform.
+- **`no_credentials`** — add `GEE_PRIVATE_KEY` (full JSON, one line) or `GOOGLE_APPLICATION_CREDENTIALS_JSON` / a key file path in App Platform. Check `hints` in the JSON body: `hasGeePrivateKeyJson` should be true when the JSON var is detected.
 - **`init_failed`** — read the `message` (wrong JSON, SA not registered for EE, missing project, etc.).
 
 ### Debug: local works, production 504
@@ -84,7 +88,7 @@ After deploy, open **`https://<your-app>.ondigitalocean.app/api/ee/health`** in 
 |-------|----------------|
 | Map shows “Set NEXT_PUBLIC_MAPBOX_TOKEN in .env.local” | The token was not in the **Docker build**. In App Platform, open the variable → enable **Available at build time** (and run time) → **Actions → Deploy** to rebuild the image. |
 | Map is gray / blank | Same as above, or wrong token value; fix and **redeploy** so a new build runs. |
-| `/api/ee/*` 503 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` valid JSON, EE enabled on the GCP project, service account [registered for Earth Engine](https://developers.google.com/earth-engine/guides/access). |
+| `/api/ee/*` 503 | `GEE_PRIVATE_KEY` or `GOOGLE_APPLICATION_CREDENTIALS_JSON` is valid JSON (one line, starts with `{`), EE enabled on the GCP project, service account [registered for Earth Engine](https://developers.google.com/earth-engine/guides/access). |
 | `Unexpected token '<', "<!DOCTYPE"...` or “HTML instead of JSON” | Often an **HTTP 504 gateway timeout** (body is HTML): Earth Engine or the app exceeded the platform’s request budget (~60–100s). **Production defaults to a fast EE profile** (`NODE_ENV=production`): lighter MODIS range, no Sentinel-2 storm loss metric, **placeholder storm map tile**, fewer precip windows, coarser risk stats. Redeploy the latest app. For full storm tiles + 2013–2024 NDVI + storm km², set **`EE_FULL_COMPUTE=1`** and use a **larger instance** (`basic-xs` or up). Do not set **`EE_FULL_COMPUTE`** unless you need that fidelity. Also verify **`GOOGLE_APPLICATION_CREDENTIALS_JSON`** is raw JSON starting with `{`, one line. |
 | Build fails or OOM | Larger **build** machine or app **plan**; inspect **Runtime logs** / build logs in the app’s **Activity** tab. |
 | Health check fails | App listens on **`PORT`** (we set `3000` in the Dockerfile); route `/` should return 200 for the static shell. |

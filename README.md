@@ -29,7 +29,7 @@ Charts and raster map layers are computed in Next.js API routes via the official
 `GOOGLE_APPLICATION_CREDENTIALS_JSON` = full service account JSON, one line.
 
 **C — Treelyon-style `GEE_PRIVATE_KEY`**  
-Full JSON string if it starts with `{`, else PEM plus `GEE_SERVICE_ACCOUNT_EMAIL` (`*.iam.gserviceaccount.com`).
+Full JSON string if it starts with `{`, else PEM plus `GEE_SERVICE_ACCOUNT_EMAIL` (must be the key’s **`client_email`** `*.iam.gserviceaccount.com`, not a personal Gmail). On **DigitalOcean App Platform**, prefer **`GEE_PRIVATE_KEY`** (one-line JSON) as in `docs/DEPLOY_DIGITALOCEAN.md`; it is read before `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
 
 Register that service account for Earth Engine in the [Earth Engine access](https://developers.google.com/earth-engine/guides/access) flow. Without valid credentials, `/api/ee/dashboard` and `/api/ee/tiles` return 503 and the UI shows fallbacks.
 

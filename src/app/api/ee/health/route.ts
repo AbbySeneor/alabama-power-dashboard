@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEarthEngine } from "@/lib/earthEngine";
+import { getEarthEngine, stripEnvValue } from "@/lib/earthEngine";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
  * (no secrets returned; only which env *names* are present).
  */
 export async function GET() {
+  const geePk = stripEnvValue(process.env.GEE_PRIVATE_KEY);
+  const geeEmail = stripEnvValue(process.env.GEE_SERVICE_ACCOUNT_EMAIL);
   const hints = {
     hasGoogleApplicationCredentials: Boolean(
       process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim(),
@@ -15,10 +17,10 @@ export async function GET() {
     hasGoogleApplicationCredentialsJson: Boolean(
       process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim(),
     ),
-    hasGeeEmailAndKey: Boolean(
-      process.env.GEE_SERVICE_ACCOUNT_EMAIL?.trim() &&
-        process.env.GEE_PRIVATE_KEY?.trim(),
-    ),
+    /** Full service account JSON in GEE_PRIVATE_KEY (no email var needed). */
+    hasGeePrivateKeyJson: Boolean(geePk.startsWith("{")),
+    /** PEM in GEE_PRIVATE_KEY; email must be the service account `client_email`, not a Gmail. */
+    hasGeePemPair: Boolean(geeEmail && geePk && !geePk.startsWith("{")),
     hasEarthEngineProject: Boolean(
       process.env.EARTH_ENGINE_PROJECT?.trim() ||
         process.env.GEE_PROJECT_ID?.trim(),
@@ -28,7 +30,8 @@ export async function GET() {
   const anyCred =
     hints.hasGoogleApplicationCredentials ||
     hints.hasGoogleApplicationCredentialsJson ||
-    hints.hasGeeEmailAndKey;
+    hints.hasGeePrivateKeyJson ||
+    hints.hasGeePemPair;
 
   if (!anyCred) {
     return NextResponse.json(
@@ -36,7 +39,7 @@ export async function GET() {
         ok: false,
         earthEngine: "no_credentials",
         message:
-          "No Earth Engine credential environment variables detected. Set GOOGLE_APPLICATION_CREDENTIALS_JSON (or file path / PEM pair) on the server.",
+          "No Earth Engine credential environment variables detected. Set GEE_PRIVATE_KEY (full JSON one line), GOOGLE_APPLICATION_CREDENTIALS_JSON, or a key file path on the server.",
         hints,
       },
       { status: 503 },

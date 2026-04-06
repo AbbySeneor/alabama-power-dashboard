@@ -1,8 +1,9 @@
 # DigitalOcean App Platform — optional spec (Apps → Create → From spec).
 # After import, open the app → Settings → App-Level Environment Variables and add:
 #   NEXT_PUBLIC_MAPBOX_TOKEN (required at build + run)
-#   GOOGLE_APPLICATION_CREDENTIALS_JSON (Earth Engine JSON, one line) OR see .env.example
+#   GEE_PRIVATE_KEY (Earth Engine: full service account JSON, one line) — preferred on App Platform
 #   EARTH_ENGINE_PROJECT (optional if JSON includes project_id)
+#   GOOGLE_APPLICATION_CREDENTIALS_JSON (alternate; ignored if GEE_PRIVATE_KEY is set)
 #
 # Or create the app from the UI: GitHub repo → Dockerfile on main → add the same variables.
 
