@@ -47,6 +47,17 @@ Click **Create resources** / **Deploy**. The first build can take several minute
 
 When it finishes, open the **`*.ondigitalocean.app`** URL.
 
+### Full charts & sharper NDVI (custom domains / demos)
+
+Production defaults to **`eeFastMode`** (`NODE_ENV=production` without overrides). That keeps `/api/ee/dashboard` and `/api/ee/tiles` under App Platform’s ~60s gateway budget, but it means:
+
+- **NDVI map layer** uses **MODIS (~250&nbsp;m)**, not Sentinel-2, so the heatmap looks blocky.
+- **Many sidebar panels** are empty or zero: north reference NDVI, GEDI canopy distribution, real storm tiles/thumbs, GRIDMET precip, storm km², risk/KPI extras — only **south** MODIS yearly + phenology are computed.
+
+To match local `next dev` richness, set **`EE_FULL_COMPUTE=1`** (run time) and use a **larger** component size (e.g. **basic-xs** or up). Redeploy and watch runtime logs for **504**; if you see timeouts, scale the instance or leave fast mode on.
+
+The live UI shows an amber **“Reduced Earth Engine mode”** bar when the fast profile is active (after the next deploy that includes `eeProfile` on `/api/ee/dashboard`).
+
 ---
 
 ## 4. After deploy

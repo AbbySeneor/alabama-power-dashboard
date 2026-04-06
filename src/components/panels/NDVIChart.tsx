@@ -63,7 +63,13 @@ export function NDVIChart({ south, north, loading }: NDVIChartProps) {
   return (
     <div className="border-b border-[var(--treelyon-border)] p-4">
       <div className="mb-1 font-sans text-[11px] font-medium uppercase tracking-wide text-[var(--treelyon-muted)]">
-        NDVI trend — 2013–2024
+        {(() => {
+          if (!south?.length) return "NDVI trend";
+          const ys = south.map((r) => r.year);
+          const lo = Math.min(...ys);
+          const hi = Math.max(...ys);
+          return lo === hi ? `NDVI trend — ${lo}` : `NDVI trend — ${lo}–${hi}`;
+        })()}
       </div>
       <div className="mb-2 font-sans text-[10px] text-[var(--treelyon-muted)]">
         MODIS MOD13Q1 (250 m)

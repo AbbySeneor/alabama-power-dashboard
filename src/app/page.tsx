@@ -200,9 +200,25 @@ export default function Home() {
     setLineFeatures(features);
   }, []);
 
+  const eeFast =
+    Boolean(dashboard?.eeProfile?.eeFastMode) && !dashboard?.eeProfile?.eeFullCompute;
+
   return (
     <div className="dashboard-grid">
       <Header />
+      {eeFast && !dashLoading && (
+        <div className="dashboard-ee-alert border-b border-amber-500/35 bg-amber-500/10 px-4 py-2 font-sans text-[11px] leading-snug text-amber-100/95">
+          <span className="font-medium text-amber-200">Reduced Earth Engine mode</span>
+          {" — "}
+          Map NDVI uses MODIS (~250&nbsp;m), not Sentinel-2. North reference, GEDI, storm
+          imagery, GRIDMET, and several KPIs are skipped so the app stays under hosting
+          timeouts. For full charts and sharper layers, set{" "}
+          <code className="rounded bg-black/30 px-1 py-0.5 text-[10px]">EE_FULL_COMPUTE=1</code>{" "}
+          on the server and use a larger App Platform instance (see{" "}
+          <code className="rounded bg-black/30 px-1 py-0.5 text-[10px]">docs/DEPLOY_DIGITALOCEAN.md</code>
+          ).
+        </div>
+      )}
       <main className="dashboard-main">
         <div className="pointer-events-none absolute inset-0">
           <div className="pointer-events-auto h-full w-full">
@@ -238,8 +254,7 @@ export default function Home() {
           />
           {dashLoading && (
             <div className="border-b border-[var(--treelyon-border)] px-4 py-2 font-sans text-[10px] leading-snug text-[var(--treelyon-muted)]">
-              Loading satellite charts (MODIS NDVI, GEDI canopy, GRIDMET) from Google
-              Earth Engine…
+              Loading satellite charts from Google Earth Engine…
             </div>
           )}
           <CorridorStats

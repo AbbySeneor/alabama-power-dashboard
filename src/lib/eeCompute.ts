@@ -12,7 +12,7 @@ import {
   promisifyGetMapId,
   promisifyThumbUrl,
 } from "@/lib/earthEngine";
-import { eeFastMode } from "@/lib/eeRuntimeProfile";
+import { earthEngineRuntimeProfile, eeFastMode } from "@/lib/eeRuntimeProfile";
 import type {
   CorridorId,
   EarthEngineDashboard,
@@ -500,6 +500,11 @@ function emptyCanopyBins() {
   ].map((range) => ({ range, count: 0 }));
 }
 
+function dashboardEeProfile(): NonNullable<EarthEngineDashboard["eeProfile"]> {
+  const p = earthEngineRuntimeProfile();
+  return { eeFastMode: p.eeFastMode, eeFullCompute: p.eeFullCompute };
+}
+
 export async function computeEarthEngineDashboard(
   ee: any,
   corridorId: CorridorId,
@@ -571,6 +576,7 @@ export async function computeEarthEngineDashboard(
     );
     return {
       ok: true,
+      eeProfile: dashboardEeProfile(),
       ndviYearlySouth,
       ndviYearlyNorth,
       phenologySouth,
@@ -664,6 +670,7 @@ export async function computeEarthEngineDashboard(
 
   return {
     ok: true,
+    eeProfile: dashboardEeProfile(),
     ndviYearlySouth,
     ndviYearlyNorth,
     phenologySouth,

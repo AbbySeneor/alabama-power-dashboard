@@ -29,9 +29,17 @@ export interface RiskSegment {
   color: string;
 }
 
+/** Mirrors server env: production defaults to fast mode unless EE_FULL_COMPUTE=1 */
+export interface EarthEngineProfile {
+  eeFastMode: boolean;
+  eeFullCompute: boolean;
+}
+
 /** Successful GET /api/ee/dashboard body */
 export interface EarthEngineDashboard {
   ok: true;
+  /** Present on server responses; omitted if JSON was cached from an older deploy */
+  eeProfile?: EarthEngineProfile;
   ndviYearlySouth: { year: number; ndvi: number }[];
   ndviYearlyNorth: { year: number; ndvi: number }[];
   phenologySouth: { month: string; ndvi: number }[];

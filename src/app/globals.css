@@ -59,9 +59,10 @@
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 380px;
-  grid-template-rows: 56px 1fr auto 32px;
+  grid-template-rows: 56px auto 1fr auto 32px;
   grid-template-areas:
     "header header"
+    "ee-alert ee-alert"
     "main sidebar"
     "insights insights"
     "status status";
@@ -72,6 +73,11 @@
 
 .dashboard-header {
   grid-area: header;
+}
+
+.dashboard-ee-alert {
+  grid-area: ee-alert;
+  min-width: 0;
 }
 
 .dashboard-main {
@@ -119,9 +125,10 @@
 @media (max-width: 768px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: 56px 1fr min(60vh, 420px) auto 32px;
+    grid-template-rows: 56px auto 1fr min(60vh, 420px) auto 32px;
     grid-template-areas:
       "header"
+      "ee-alert"
       "main"
       "sidebar"
       "insights"
