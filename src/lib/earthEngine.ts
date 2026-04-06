@@ -11,6 +11,12 @@ function normalizePrivateKeyPem(raw: string): string {
   return raw.trim().replace(/\\n/g, "\n");
 }
 
+/** Trim + strip UTF-8 BOM (common when copying JSON from some editors / consoles). */
+function stripEnvValue(raw: string | undefined): string {
+  if (raw == null) return "";
+  return raw.trim().replace(/^\uFEFF/, "");
+}
+
 type ParsedCredentials = {
   client_email: string;
   private_key: string;
@@ -18,7 +24,7 @@ type ParsedCredentials = {
 };
 
 function parseServiceAccountJson(raw: string): ParsedCredentials {
-  const trimmed = raw.trim();
+  const trimmed = stripEnvValue(raw);
   if (trimmed.startsWith("<")) {
     throw new Error(
       "Earth Engine credentials look like HTML, not JSON. For GOOGLE_APPLICATION_CREDENTIALS_JSON (e.g. on DigitalOcean), paste only the Google Cloud service account key JSON — one line, starting with {. Do not paste a console page or error HTML.",
@@ -26,7 +32,7 @@ function parseServiceAccountJson(raw: string): ParsedCredentials {
   }
   let o: Record<string, unknown>;
   try {
-    o = JSON.parse(raw) as Record<string, unknown>;
+    o = JSON.parse(trimmed) as Record<string, unknown>;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(
@@ -74,13 +80,13 @@ function loadEarthEngineCredentials(): ParsedCredentials {
   const fromFile = loadFromCredentialsFile();
   if (fromFile) return fromFile;
 
-  const legacyJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim();
+  const legacyJson = stripEnvValue(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
   if (legacyJson) {
     return parseServiceAccountJson(legacyJson);
   }
 
-  const geeKey = process.env.GEE_PRIVATE_KEY?.trim();
-  const geeEmail = process.env.GEE_SERVICE_ACCOUNT_EMAIL?.trim();
+  const geeKey = stripEnvValue(process.env.GEE_PRIVATE_KEY);
+  const geeEmail = stripEnvValue(process.env.GEE_SERVICE_ACCOUNT_EMAIL);
 
   if (geeKey?.startsWith("{")) {
     return parseServiceAccountJson(geeKey);
@@ -125,7 +131,12 @@ export async function getEarthEngine(): Promise<any> {
       ee.data.authenticateViaPrivateKey(
         { client_email, private_key },
         () => resolve(),
-        (err: Error) => reject(err),
+        (err: Error) =>
+          reject(
+            new Error(
+              `Earth Engine authenticateViaPrivateKey failed: ${err.message}. Check private_key / client_email.`,
+            ),
+          ),
       );
     });
 
@@ -136,7 +147,14 @@ export async function getEarthEngine(): Promise<any> {
         undefined,
         undefined,
         () => resolve(),
-        (e: Error) => reject(e),
+        (e: Error) =>
+          reject(
+            new Error(
+              `Earth Engine initialize failed: ${e.message}. ` +
+                `Register service account ${client_email} for Earth Engine, enable the Earth Engine API on GCP, ` +
+                `and set EARTH_ENGINE_PROJECT to your project id if needed (JSON project_id: ${parsed.project_id ?? "missing"}).`,
+            ),
+          ),
         undefined,
         project || undefined,
       );

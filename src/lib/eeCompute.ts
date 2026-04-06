@@ -474,11 +474,15 @@ export async function computeEarthEngineDashboard(
 
   const key = options?.lineObjectKey?.trim();
   if (key) {
-    const row = await fetchBufferedLineGeometryForEe(ee, corridorId, key);
-    if (row) {
-      geometry = row.geometry;
-      southDisk = ee.Geometry.Point(row.centroidLngLat).buffer(4000);
-      precipAt = { lng: row.centroidLngLat[0], lat: row.centroidLngLat[1] };
+    try {
+      const row = await fetchBufferedLineGeometryForEe(ee, corridorId, key);
+      if (row) {
+        geometry = row.geometry;
+        southDisk = ee.Geometry.Point(row.centroidLngLat).buffer(4000);
+        precipAt = { lng: row.centroidLngLat[0], lat: row.centroidLngLat[1] };
+      }
+    } catch (e) {
+      console.error("[ee] line-scoped AOI failed; using corridor bounds", e);
     }
   }
 

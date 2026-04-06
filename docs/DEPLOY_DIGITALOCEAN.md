@@ -58,6 +58,14 @@ When it finishes, open the **`*.ondigitalocean.app`** URL.
 
 ---
 
+## Quick check: Earth Engine
+
+After deploy, open **`https://<your-app>.ondigitalocean.app/api/ee/health`** in the browser.
+
+- **`earthEngine: "ready"`** — auth and `ee.initialize` succeeded; if charts still fail, check **runtime logs** for compute errors.
+- **`no_credentials`** — add `GOOGLE_APPLICATION_CREDENTIALS_JSON` (or another supported variable) in App Platform.
+- **`init_failed`** — read the `message` (wrong JSON, SA not registered for EE, missing project, etc.).
+
 ## Troubleshooting (App Platform)
 
 | Issue | What to check |

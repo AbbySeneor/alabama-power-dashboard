@@ -19,12 +19,16 @@ export async function GET(req: NextRequest) {
     const ee = await getEarthEngine();
     let rowClip: EeClipGeometry | null = null;
     if (lineObjectKey) {
-      const row = await fetchBufferedLineGeometryForEe(
-        ee,
-        corridorId,
-        lineObjectKey,
-      );
-      if (row) rowClip = row.geometry;
+      try {
+        const row = await fetchBufferedLineGeometryForEe(
+          ee,
+          corridorId,
+          lineObjectKey,
+        );
+        if (row) rowClip = row.geometry;
+      } catch (e) {
+        console.error("[ee] tiles line clip failed; using corridor tiles", e);
+      }
     }
     const tiles = await buildMapTiles(ee, { rowClip });
     return NextResponse.json(
