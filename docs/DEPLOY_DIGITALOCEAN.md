@@ -76,7 +76,7 @@ After deploy, open **`https://<your-app>.ondigitalocean.app/api/ee/health`** in 
 
 **Why `next dev` differs:** Local development has **no** App Platform (~60s) gateway in front of your API routes, so slow Earth Engine work can still finish. Production cannot.
 
-**Mitigations:** Keep production **`eeFastMode`** (default: do **not** set `EE_FULL_COMPUTE=1`), deploy the latest app (MODIS-based NDVI tiles in fast mode), or **resize** the web component to a larger instance.
+**Mitigations:** Keep production **`eeFastMode`** (default: do **not** set `EE_FULL_COMPUTE=1`). The fast profile uses **MODIS-only** map tiles (no Sentinel-2 / GEDI in tiles), a **minimal dashboard** (south MODIS yearly + phenology only; north ref, risk, canopy bins, precip, and storm KPIs are empty/zero until you enable full compute), or **resize** the web component. Set **`EE_FULL_COMPUTE=1`** on a larger instance for the full experience.
 
 ## Troubleshooting (App Platform)
 

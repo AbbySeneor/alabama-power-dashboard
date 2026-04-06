@@ -527,7 +527,66 @@ export async function computeEarthEngineDashboard(
   const collectionBounds = alabamaGeometry(ee);
   const northDisk = bufferedCenterDisk(ee, EE_NORTH_REF_BOUNDS);
 
-  const yearStart = eeFastMode() ? 2020 : 2013;
+  /**
+   * Production fast path: only **two** MODIS `reduceRegion` calls on the south disk.
+   * North ref, risk, GEDI, precip, storm KPIs, and thumbs are omitted — they pushed many
+   * hosts past ~60s gateway limits when combined with tiles + parallel EE load.
+   * Use `EE_FULL_COMPUTE=1` (and a larger instance) for the full dashboard.
+   */
+  if (eeFastMode()) {
+    const yearStart = 2020;
+    const years: number[] = [];
+    for (let y = yearStart; y <= 2024; y++) years.push(y);
+    let ndviYearlySouth = years.map((year) => ({ year, ndvi: 0 }));
+    let phenologySouth = MONTHS.map((month) => ({ month, ndvi: 0 }));
+    try {
+      const yearlyStack = yearlyNdviStack(ee, collectionBounds, years);
+      const phenoStack = phenologyNdviStack(
+        ee,
+        collectionBounds,
+        "2021-01-01",
+      );
+      const reduceOpts = {
+        reducer: ee.Reducer.mean(),
+        scale: 1000,
+        ...REDUCE_REGION,
+      };
+      const [dSouthY, dSouthP] = await Promise.all([
+        eeGetInfo<Record<string, number>>(
+          yearlyStack.reduceRegion({ ...reduceOpts, geometry: southDisk }),
+        ),
+        eeGetInfo<Record<string, number>>(
+          phenoStack.reduceRegion({ ...reduceOpts, geometry: southDisk }),
+        ),
+      ]);
+      ndviYearlySouth = dictToYearlySeries(dSouthY, years);
+      phenologySouth = dictToPhenologySeries(dSouthP, MONTHS);
+    } catch (e) {
+      console.error("[ee] fast dashboard MODIS (south only) failed", e);
+    }
+    const ndviYearlyNorth = years.map((year) => ({ year, ndvi: 0 }));
+    const phenologyNorth = MONTHS.map((month) => ({ month, ndvi: 0 }));
+    console.log(
+      "[ee/dashboard] fast minimal dashboard (south MODIS only; north/risk/GEDI/precip/KPIs skipped)",
+    );
+    return {
+      ok: true,
+      ndviYearlySouth,
+      ndviYearlyNorth,
+      phenologySouth,
+      phenologyNorth,
+      canopyBins: emptyCanopyBins(),
+      riskSegments: EMPTY_RISK,
+      riskAtRiskPct: 0,
+      precip: [],
+      stormDisturbedAreaKm2: 0,
+      highNdviFractionPct: 0,
+      thumbPreUrl: null,
+      thumbPostUrl: null,
+    };
+  }
+
+  const yearStart = 2013;
   const years: number[] = [];
   for (let y = yearStart; y <= 2024; y++) years.push(y);
 
@@ -537,11 +596,10 @@ export async function computeEarthEngineDashboard(
   let phenologyNorth = MONTHS.map((month) => ({ month, ndvi: 0 }));
   try {
     const yearlyStack = yearlyNdviStack(ee, collectionBounds, years);
-    const phenoStart = eeFastMode() ? "2021-01-01" : "2019-01-01";
-    const phenoStack = phenologyNdviStack(ee, collectionBounds, phenoStart);
+    const phenoStack = phenologyNdviStack(ee, collectionBounds, "2019-01-01");
     const reduceOpts = {
       reducer: ee.Reducer.mean(),
-      scale: eeFastMode() ? 1000 : MODIS_STATS_SCALE,
+      scale: MODIS_STATS_SCALE,
       ...REDUCE_REGION,
     };
     const [dSouthY, dNorthY, dSouthP, dNorthP] = await Promise.all([
@@ -654,13 +712,19 @@ export async function buildMapTiles(
         .median()
         .clip(region);
 
-  const gediCanopy = ee
-    .ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
-    .filterDate(fast ? "2023-06-01" : "2023-01-01", "2024-06-01")
-    .filterBounds(region)
-    .select("rh98")
-    .mean()
-    .clip(region);
+  /**
+   * GEDI statewide mean + getMapId is expensive; fast mode uses a flat placeholder so
+   * `/api/ee/tiles` stays under gateway timeouts. Full canopy tiles need EE_FULL_COMPUTE=1.
+   */
+  const gediCanopy = fast
+    ? ee.Image(12).float().rename("rh98").clip(region)
+    : ee
+        .ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
+        .filterDate("2023-01-01", "2024-06-01")
+        .filterBounds(region)
+        .select("rh98")
+        .mean()
+        .clip(region);
 
   /**
    * Full storm layer = two S2 medians + diff — often pushes `/api/ee/tiles` past gateway timeouts.
