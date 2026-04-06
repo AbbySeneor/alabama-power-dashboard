@@ -1,61 +1,74 @@
-# Deploy to DigitalOcean
+# Deploy on DigitalOcean App Platform
 
-This app is a **Next.js 14** service with a **Dockerfile** (standalone output). The usual path is **App Platform** (builds from GitHub). Earth Engine and Mapbox need **environment variables**.
+This app ships a **Dockerfile** (Next.js **standalone**). App Platform builds the image from GitHub and runs `node server.js` on port **3000**.
 
-## Prerequisites
+**Repo:** `AbbySeneor/alabama-power-dashboard` · branch **`main`**
 
-- GitHub repo pushed (e.g. `AbbySeneor/alabama-power-dashboard`).
-- A **Mapbox** public token (`NEXT_PUBLIC_MAPBOX_TOKEN`).
-- A **Google Earth Engine** service account JSON for server-side `/api/ee/*` routes.
+---
 
-## Option A — App Platform (recommended)
+## 1. Create the app
 
-1. Log in to [DigitalOcean](https://cloud.digitalocean.com/) → **Apps** → **Create App**.
-2. Choose **GitHub**, authorize, select **`alabama-power-dashboard`** and branch **`main`**.
-3. DigitalOcean should detect the **Dockerfile**. Confirm:
-   - **HTTP port:** `3000`
-   - **Resource size:** e.g. **Basic** (512 MB) or larger if builds fail OOM.
-4. Under **Environment variables** (app or component), add:
+1. Open [DigitalOcean → Apps → Create app](https://cloud.digitalocean.com/apps/new).
+2. **GitHub** → authorize if needed → pick **`alabama-power-dashboard`** → branch **`main`**.
+3. DigitalOcean should detect **Dockerfile** at the repo root.
+4. Edit the **Web Service** component if needed:
+   - **HTTP request routes:** `/` → this service  
+   - **HTTP port:** `3000`  
+   - **Instance size:** start with **Basic** (e.g. 512 MB); bump if the Docker **build** runs out of memory.
 
-   | Variable | Scope | Notes |
-   |----------|--------|--------|
-   | `NEXT_PUBLIC_MAPBOX_TOKEN` | **Build + Run** | Required; inlined at build. |
-   | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | **Run only** | Full service account JSON as **one line** (same as local `.env.example` option B). |
-   | `EARTH_ENGINE_PROJECT` | **Run only** | Optional if `project_id` is inside the JSON. |
+---
 
-   Mark sensitive values as **Encrypt** / **Secret**.
+## 2. Environment variables (required)
 
-5. **Create resources** and wait for the first deploy.
+Open the component (or app) **Environment Variables** section **before** the first deploy.
 
-6. Optional: **Settings → Domains** to attach a custom domain and enable HTTPS.
+| Key | When it applies | Value |
+|-----|-----------------|--------|
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | **Build** *and* **Run** | Your Mapbox **public** token (`pk.…`). Must be present at **build** so Next.js can inline it. |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | **Run** only | Full Google **service account JSON** as a **single line** (no line breaks). Same as local `.env.example` option B. |
+| `EARTH_ENGINE_PROJECT` | **Run** only | Optional if the JSON already contains `project_id`. |
 
-### Deploy on push
+**Secrets:** turn on **Encrypt** (or mark as secret) for the token and JSON.
 
-With the GitHub integration, each push to `main` triggers a new deployment.
+In the App Platform UI, each variable usually has checkboxes like **Available at build time** and **Available at run time**:
 
-### Optional: app spec
+- `NEXT_PUBLIC_MAPBOX_TOKEN` → enable **both** build and run.  
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON` and `EARTH_ENGINE_PROJECT` → **run time only**.
 
-You can paste `.do/app.yaml` via **Create App → From spec**, then add the variables in the UI (the spec does not store secrets).
+---
 
-## Option B — Droplet (Docker)
+## 3. Deploy
 
-On a Ubuntu droplet:
+Click **Create resources** / **Deploy**. The first build can take several minutes.
 
-```bash
-git clone https://github.com/AbbySeneor/alabama-power-dashboard.git
-cd alabama-power-dashboard
-# Create .env with NEXT_PUBLIC_MAPBOX_TOKEN and GOOGLE_APPLICATION_CREDENTIALS_JSON
-docker build -t row-dash --build-arg NEXT_PUBLIC_MAPBOX_TOKEN=pk.ey... .
-docker run -d -p 3000:3000 \
-  -e GOOGLE_APPLICATION_CREDENTIALS_JSON='...' \
-  -e EARTH_ENGINE_PROJECT=your-gee-project \
-  row-dash
-```
+When it finishes, open the **`*.ondigitalocean.app`** URL.
 
-Put **Caddy** or **nginx** in front for TLS on port 443.
+---
 
-## Troubleshooting
+## 4. After deploy
 
-- **Map is blank:** `NEXT_PUBLIC_MAPBOX_TOKEN` missing or wrong at **build** time; rebuild after fixing.
-- **Earth Engine errors:** Check `GOOGLE_APPLICATION_CREDENTIALS_JSON` (valid JSON, EE API enabled for the project, service account registered in Earth Engine).
-- **Build OOM:** Increase App Platform plan or build machine size.
+- **Custom domain:** App → **Settings** → **Domains** → add domain; App Platform provisions HTTPS.
+- **Auto-deploy:** With GitHub connected, pushes to **`main`** trigger new deployments (see app settings if you want to limit branches).
+
+### Optional: create from YAML
+
+1. **Create app** → **From a spec** (or upload spec).  
+2. Paste `.do/app.yaml` from this repo.  
+3. Still add the **environment variables** in the UI (the spec does not store secrets).
+
+---
+
+## Troubleshooting (App Platform)
+
+| Issue | What to check |
+|-------|----------------|
+| Map is gray / blank | `NEXT_PUBLIC_MAPBOX_TOKEN` set for **build**; redeploy after changing it. |
+| `/api/ee/*` 503 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` valid JSON, EE enabled on the GCP project, service account [registered for Earth Engine](https://developers.google.com/earth-engine/guides/access). |
+| Build fails or OOM | Larger **build** machine or app **plan**; inspect **Runtime logs** / build logs in the app’s **Activity** tab. |
+| Health check fails | App listens on **`PORT`** (we set `3000` in the Dockerfile); route `/` should return 200 for the static shell. |
+
+---
+
+## Alternative: Droplet + Docker
+
+If you prefer a VM instead of App Platform, use the same `Dockerfile` and `docker run` with `-e` for the variables above. See older revisions of this file or ask your team for a Droplet runbook.
