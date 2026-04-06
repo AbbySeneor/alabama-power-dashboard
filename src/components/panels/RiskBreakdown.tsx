@@ -50,7 +50,11 @@ export function RiskBreakdown({
                   <div className="h-full w-full rounded-card bg-[var(--treelyon-dark)]" />
                 }
               >
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  initialDimension={{ width: 180, height: 180 }}
+                >
                   <PieChart>
                     <Pie
                       data={DATA}

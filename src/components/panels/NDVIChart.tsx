@@ -79,7 +79,11 @@ export function NDVIChart({ south, north, loading }: NDVIChartProps) {
               <div className="h-full w-full rounded-card bg-[var(--treelyon-dark)]" />
             }
           >
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 340, height: 260 }}
+            >
               <LineChart
                 data={data}
                 margin={{ top: 8, right: 8, left: 0, bottom: 4 }}

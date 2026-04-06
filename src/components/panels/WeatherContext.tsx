@@ -46,7 +46,11 @@ export function WeatherContext({ precip, loading }: WeatherContextProps) {
               <div className="h-full w-full rounded-card bg-[var(--treelyon-dark)]" />
             }
           >
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 340, height: 140 }}
+            >
               <BarChart
                 data={data}
                 margin={{ top: 8, right: 4, left: -12, bottom: 0 }}

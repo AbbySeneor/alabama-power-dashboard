@@ -468,7 +468,11 @@ export function AnalysisInsights({
                     <Mounted
                       fallback={<div className="h-full rounded bg-[var(--treelyon-dark)]" />}
                     >
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                        initialDimension={{ width: 400, height: 120 }}
+                      >
                         <BarChart
                           data={canopyData}
                           margin={{ top: 2, right: 4, left: -28, bottom: 0 }}
@@ -511,7 +515,11 @@ export function AnalysisInsights({
                     <Mounted
                       fallback={<div className="h-full rounded bg-[var(--treelyon-dark)]" />}
                     >
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                        initialDimension={{ width: 160, height: 120 }}
+                      >
                         <PieChart>
                           <Pie
                             data={riskData}

@@ -41,6 +41,13 @@ const EMPTY_FC: FeatureCollection<LineString | MultiLineString> = {
   features: [],
 };
 
+function queryableLayerIds(
+  map: MapMouseEvent["target"],
+  ids: readonly string[],
+): string[] {
+  return ids.filter((id) => map.getLayer(id) != null);
+}
+
 /** Match server `eeRowLineGeometry` buffer (95 m). */
 const ROW_BUFFER_KM = 0.095;
 
@@ -236,19 +243,32 @@ export function ROWMap({
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = [];
-    if (visibility.apLines) ids.push(LAYERS.apLines);
-    if (visibility.allLines) ids.push(LAYERS.allLines);
+    if (visibility.apLines && apLines.features.length > 0) ids.push(LAYERS.apLines);
+    if (visibility.allLines && allLines) ids.push(LAYERS.allLines);
     return ids;
-  }, [visibility]);
+  }, [
+    visibility.apLines,
+    visibility.allLines,
+    apLines.features.length,
+    allLines,
+  ]);
 
   const onMapMouseMove = useCallback(
     (e: MapMouseEvent) => {
       onCursorMove(e.lngLat.lng, e.lngLat.lat);
       const { clientX, clientY } = e.originalEvent;
       const map = e.target;
-      const feats = map.queryRenderedFeatures(e.point, {
-        layers: interactiveLayerIds.filter(Boolean),
-      });
+      const layers = queryableLayerIds(map, interactiveLayerIds);
+      if (layers.length === 0) {
+        setTooltip((t) => ({ ...t, kind: null, payload: null }));
+        return;
+      }
+      let feats;
+      try {
+        feats = map.queryRenderedFeatures(e.point, { layers });
+      } catch {
+        return;
+      }
       const fx = feats[0];
       if (!fx) {
         setTooltip((t) => ({ ...t, kind: null, payload: null }));
@@ -270,18 +290,28 @@ export function ROWMap({
 
   const onMapClick = useCallback(
     (e: MapMouseEvent) => {
-      if (!visibility.apLines) return;
+      if (!visibility.apLines || apLines.features.length === 0) return;
       const map = e.target;
-      const feats = map.queryRenderedFeatures(e.point, {
-        layers: [LAYERS.apLines],
-      });
+      const layers = queryableLayerIds(map, [LAYERS.apLines]);
+      if (layers.length === 0) return;
+      let feats;
+      try {
+        feats = map.queryRenderedFeatures(e.point, { layers });
+      } catch {
+        return;
+      }
       const f = feats[0] as unknown as PowerLineFeature | undefined;
       if (!f) return;
       const id = inferCorridorId(f);
       if (id) onCorridorSelect(id);
       onLineObjectKeyChange(powerLineStableKey(f.properties));
     },
-    [onCorridorSelect, onLineObjectKeyChange, visibility.apLines],
+    [
+      onCorridorSelect,
+      onLineObjectKeyChange,
+      visibility.apLines,
+      apLines.features.length,
+    ],
   );
 
   const zoomBy = (delta: number) => {
