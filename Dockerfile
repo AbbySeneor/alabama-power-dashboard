@@ -12,9 +12,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# Required at build time for NEXT_PUBLIC_* inlining
+# Required at build time for NEXT_PUBLIC_* inlining (App Platform: enable this var at *build* time)
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
+RUN if [ -z "$NEXT_PUBLIC_MAPBOX_TOKEN" ]; then \
+  echo "ERROR: NEXT_PUBLIC_MAPBOX_TOKEN is empty. For DigitalOcean App Platform, edit the env var and check \"Available at build time\" (then redeploy)."; \
+  exit 1; \
+  fi
 RUN npm run build
 
 FROM base AS runner

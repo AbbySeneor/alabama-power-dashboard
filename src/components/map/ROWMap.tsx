@@ -297,13 +297,21 @@ export function ROWMap({
 
   if (!token || token.includes("your_mapbox")) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[var(--treelyon-dark)] p-6 text-center font-sans text-sm text-[var(--treelyon-muted)]">
-        Set{" "}
-        <code className="mx-1 font-mono text-[var(--treelyon-primary-muted)]">
-          NEXT_PUBLIC_MAPBOX_TOKEN
-        </code>{" "}
-        in{" "}
-        <code className="mx-1 font-mono">.env.local</code> to load the map.
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[var(--treelyon-dark)] p-6 text-center font-sans text-sm text-[var(--treelyon-muted)]">
+        <p>
+          Mapbox token missing: set{" "}
+          <code className="mx-1 font-mono text-[var(--treelyon-primary-muted)]">
+            NEXT_PUBLIC_MAPBOX_TOKEN
+          </code>{" "}
+          in <code className="mx-1 font-mono">.env.local</code> for local dev.
+        </p>
+        <p className="max-w-md text-[11px] leading-snug text-[var(--treelyon-muted)]">
+          On DigitalOcean App Platform, add the same variable and enable{" "}
+          <strong className="font-medium text-[var(--treelyon-text)]">
+            Available at build time
+          </strong>
+          , then redeploy so the image rebuilds with your <code className="font-mono">pk.…</code> token.
+        </p>
       </div>
     );
   }

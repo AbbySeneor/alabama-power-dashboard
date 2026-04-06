@@ -62,7 +62,8 @@ When it finishes, open the **`*.ondigitalocean.app`** URL.
 
 | Issue | What to check |
 |-------|----------------|
-| Map is gray / blank | `NEXT_PUBLIC_MAPBOX_TOKEN` set for **build**; redeploy after changing it. |
+| Map shows “Set NEXT_PUBLIC_MAPBOX_TOKEN in .env.local” | The token was not in the **Docker build**. In App Platform, open the variable → enable **Available at build time** (and run time) → **Actions → Deploy** to rebuild the image. |
+| Map is gray / blank | Same as above, or wrong token value; fix and **redeploy** so a new build runs. |
 | `/api/ee/*` 503 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` valid JSON, EE enabled on the GCP project, service account [registered for Earth Engine](https://developers.google.com/earth-engine/guides/access). |
 | Build fails or OOM | Larger **build** machine or app **plan**; inspect **Runtime logs** / build logs in the app’s **Activity** tab. |
 | Health check fails | App listens on **`PORT`** (we set `3000` in the Dockerfile); route `/` should return 200 for the static shell. |
