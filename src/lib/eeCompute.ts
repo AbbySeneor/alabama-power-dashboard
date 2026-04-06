@@ -67,6 +67,22 @@ const MODIS_STATS_SCALE = 500;
 
 const MODIS_VEG = "MODIS/061/MOD13Q1";
 
+/**
+ * App Platform / many hosts return HTTP 504 if Earth Engine work exceeds ~60–100s.
+ * Production defaults to a lighter compute path; set EE_FULL_COMPUTE=1 for full fidelity.
+ */
+function eeFullCompute(): boolean {
+  const v = process.env.EE_FULL_COMPUTE?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+function eeFastMode(): boolean {
+  if (eeFullCompute()) return false;
+  const off = process.env.EE_FAST_MODE?.trim().toLowerCase();
+  if (off === "0" || off === "false" || off === "no") return false;
+  return process.env.NODE_ENV === "production";
+}
+
 async function mapInBatches<T, R>(
   items: T[],
   batchSize: number,
@@ -107,13 +123,17 @@ function yearlyNdviStack(ee: any, collectionBounds: any, years: number[]) {
   return catBandImages(ee, bands);
 }
 
-function phenologyNdviStack(ee: any, collectionBounds: any) {
+function phenologyNdviStack(
+  ee: any,
+  collectionBounds: any,
+  startDate = "2019-01-01",
+) {
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
   const bands = months.map((m) =>
     ee
       .ImageCollection(MODIS_VEG)
       .filter(ee.Filter.calendarRange(m, m, "month"))
-      .filterDate("2019-01-01", "2025-01-01")
+      .filterDate(startDate, "2025-01-01")
       .filterBounds(collectionBounds)
       .map((i: any) => modisNdviImage(ee, i))
       .mean()
@@ -156,6 +176,11 @@ const EMPTY_RISK: RiskSegment[] = [
 ];
 
 async function riskFromNdvi(ee: any, geometry: any, collectionBounds: any) {
+  const fast = eeFastMode();
+  const scale = fast ? 1000 : MODIS_STATS_SCALE;
+  const heavy = fast
+    ? { maxPixels: 1e9, tileScale: 4 }
+    : REDUCE_REGION_HEAVY;
   const img = ee
     .ImageCollection(MODIS_VEG)
     .filterDate("2023-01-01", "2025-01-01")
@@ -170,8 +195,8 @@ async function riskFromNdvi(ee: any, geometry: any, collectionBounds: any) {
       im.reduceRegion({
         reducer: ee.Reducer.sum(),
         geometry,
-        scale: MODIS_STATS_SCALE,
-        ...REDUCE_REGION_HEAVY,
+        scale,
+        ...heavy,
       }),
     );
     return d?.s ?? 0;
@@ -215,12 +240,13 @@ async function gediBinsByHistogram(
   gediMean: any,
   statGeom: any,
   labels: string[],
+  scale = 500,
 ) {
   const dict = await eeGetInfo<Record<string, unknown>>(
     gediMean.select("rh98").reduceRegion({
       reducer: ee.Reducer.fixedHistogram(0, 30, 6),
       geometry: statGeom,
-      scale: 500,
+      scale,
       ...REDUCE_REGION,
     }),
   );
@@ -268,6 +294,7 @@ async function canopyBinsFromGedi(
   geometry: any,
   collectionBounds: any,
 ) {
+  const fast = eeFastMode();
   const labels = [
     "0–5 m",
     "5–10 m",
@@ -276,19 +303,28 @@ async function canopyBinsFromGedi(
     "20–25 m",
     "25–30 m",
   ];
-  const statGeom = geometry.buffer(8000);
+  const statGeom = geometry.buffer(fast ? 5000 : 8000);
   try {
     const gediMean = ee
       .ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
-      .filterDate("2019-01-01", "2024-12-31")
+      .filterDate(fast ? "2021-01-01" : "2019-01-01", "2024-12-31")
       .filterBounds(collectionBounds)
       .select("rh98")
       .mean();
     try {
-      const fromHist = await gediBinsByHistogram(ee, gediMean, statGeom, labels);
+      const fromHist = await gediBinsByHistogram(
+        ee,
+        gediMean,
+        statGeom,
+        labels,
+        fast ? 1000 : 500,
+      );
       if (fromHist.some((b) => b.count > 0)) return fromHist;
     } catch (e) {
       console.error("[ee] GEDI fixedHistogram failed, using mask counts", e);
+    }
+    if (fast) {
+      return labels.map((range) => ({ range, count: 0 }));
     }
     return await gediBinsByMaskCounts(ee, gediMean, statGeom, labels);
   } catch (e) {
@@ -305,14 +341,16 @@ async function precipSeries(ee: any, at: PrecipSampleLocation): Promise<PrecipDa
   /** Point-only reduce on GRIDMET (~4 km) often returns null; buffer samples a pixel reliably. */
   const sampleGeom = ee.Geometry.Point([cx, cy]).buffer(3000);
   const start = new Date(Date.UTC(2022, 11, 1));
-  const slots = Array.from({ length: 12 }, (_, i) => {
+  const slotCount = eeFastMode() ? 8 : 12;
+  const slots = Array.from({ length: slotCount }, (_, i) => {
     const d0 = new Date(start);
     d0.setUTCDate(start.getUTCDate() + i * 5);
     const d1 = new Date(d0);
     d1.setUTCDate(d0.getUTCDate() + 5);
     return { d0, d1, t0: d0.getTime(), t1: d1.getTime() };
   });
-  return mapInBatches(slots, 6, async ({ d0, t0, t1 }) => {
+  const batchSize = eeFastMode() ? 8 : 6;
+  return mapInBatches(slots, batchSize, async ({ d0, t0, t1 }) => {
     const label = `${MONTHS[d0.getUTCMonth()]} ${String(d0.getUTCDate()).padStart(2, "0")}`;
     try {
       const img = ee
@@ -360,11 +398,12 @@ async function stormLossKm2(ee: any, geometry: any): Promise<number> {
     .gt(0.12)
     .rename("s")
     .multiply(ee.Image.pixelArea());
+  const lossScale = eeFastMode() ? 100 : 30;
   const dict = await eeGetInfo<Record<string, number>>(
     disturbed.reduceRegion({
       reducer: ee.Reducer.sum(),
       geometry,
-      scale: 30,
+      scale: lossScale,
       ...REDUCE_REGION_HEAVY,
     }),
   );
@@ -387,12 +426,13 @@ async function highNdviFraction(
   const pix = ee.Image.pixelArea();
   const vegArea = nd.gt(0.62).rename("s").multiply(pix);
   const allArea = nd.mask().rename("s").multiply(pix);
+  const hiScale = eeFastMode() ? 1000 : MODIS_STATS_SCALE;
   const [vDict, aDict] = await Promise.all([
     eeGetInfo<Record<string, number>>(
       vegArea.reduceRegion({
         reducer: ee.Reducer.sum(),
         geometry,
-        scale: MODIS_STATS_SCALE,
+        scale: hiScale,
         ...REDUCE_REGION_HEAVY,
       }),
     ),
@@ -400,7 +440,7 @@ async function highNdviFraction(
       allArea.reduceRegion({
         reducer: ee.Reducer.sum(),
         geometry,
-        scale: MODIS_STATS_SCALE,
+        scale: hiScale,
         ...REDUCE_REGION_HEAVY,
       }),
     ),
@@ -412,6 +452,9 @@ async function highNdviFraction(
 }
 
 async function stormThumbs(ee: any, geometry: any) {
+  if (eeFastMode()) {
+    return { thumbPreUrl: null, thumbPostUrl: null };
+  }
   /**
    * Match stormLossKm2: build Sentinel-2 medians over Alabama so collections are not empty,
    * then clip to a buffered corridor for thumbnails (narrow filterBounds alone often yields no scenes).
@@ -489,8 +532,9 @@ export async function computeEarthEngineDashboard(
   const collectionBounds = alabamaGeometry(ee);
   const northDisk = bufferedCenterDisk(ee, EE_NORTH_REF_BOUNDS);
 
+  const yearStart = eeFastMode() ? 2019 : 2013;
   const years: number[] = [];
-  for (let y = 2013; y <= 2024; y++) years.push(y);
+  for (let y = yearStart; y <= 2024; y++) years.push(y);
 
   let ndviYearlySouth = years.map((year) => ({ year, ndvi: 0 }));
   let ndviYearlyNorth = years.map((year) => ({ year, ndvi: 0 }));
@@ -498,10 +542,11 @@ export async function computeEarthEngineDashboard(
   let phenologyNorth = MONTHS.map((month) => ({ month, ndvi: 0 }));
   try {
     const yearlyStack = yearlyNdviStack(ee, collectionBounds, years);
-    const phenoStack = phenologyNdviStack(ee, collectionBounds);
+    const phenoStart = eeFastMode() ? "2021-01-01" : "2019-01-01";
+    const phenoStack = phenologyNdviStack(ee, collectionBounds, phenoStart);
     const reduceOpts = {
       reducer: ee.Reducer.mean(),
-      scale: MODIS_STATS_SCALE,
+      scale: eeFastMode() ? 1000 : MODIS_STATS_SCALE,
       ...REDUCE_REGION,
     };
     const [dSouthY, dNorthY, dSouthP, dNorthP] = await Promise.all([
@@ -587,12 +632,15 @@ export async function buildMapTiles(
 ) {
   const region = rect(ee, EE_ALABAMA_BOUNDS);
   const rowClip = opts?.rowClip ?? null;
+  const fast = eeFastMode();
+  const cloudRecent = fast ? 85 : 60;
+  const cloudStorm = fast ? 90 : 75;
 
   const s2ndviRecent = ee
     .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterDate("2024-03-01", "2024-10-01")
     .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 60))
+    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudRecent))
     .map((img: any) =>
       img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
     )
@@ -601,7 +649,7 @@ export async function buildMapTiles(
 
   const gediCanopy = ee
     .ImageCollection("LARSE/GEDI/GEDI02_A_002_MONTHLY")
-    .filterDate("2023-01-01", "2024-06-01")
+    .filterDate(fast ? "2023-06-01" : "2023-01-01", "2024-06-01")
     .filterBounds(region)
     .select("rh98")
     .mean()
@@ -611,7 +659,7 @@ export async function buildMapTiles(
     .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterDate("2022-10-01", "2022-12-20")
     .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 75))
+    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
     .map((img: any) =>
       img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
     )
@@ -621,7 +669,7 @@ export async function buildMapTiles(
     .ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterDate("2023-02-01", "2023-05-01")
     .filterBounds(region)
-    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 75))
+    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloudStorm))
     .map((img: any) =>
       img.normalizedDifference(["B8", "B4"]).rename("ndvi"),
     )
